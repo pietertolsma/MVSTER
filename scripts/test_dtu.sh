@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-DTU_TESTPATH="/mnt/cfs/algorithm/public_data/mvs/dtu_test"
-DTU_TESTLIST="lists/dtu/test.txt"
+DTU_TESTPATH="/home/ptolsma/mvster/data"
+DTU_TESTLIST="lists/mydata/test.txt"
 
 DTU_size=$1
 exp=$2

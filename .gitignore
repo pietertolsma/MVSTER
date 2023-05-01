@@ -2,3 +2,6 @@ outputs/
 checkpoints/
 debug_figs/
 *__pycache__
+scripts/upload_sippora.sh
+scripts/download_sippora.sh
+data/

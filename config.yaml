@@ -1,0 +1,10 @@
+data:
+  root: ./data/transMVS
+  category: transparent
+  img_wh: [960, 640]
+  nviews: 6
+  depth_min: 0.1
+  depth_max: 100000
+
+train:
+  robust: True

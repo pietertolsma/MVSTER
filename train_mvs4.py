@@ -11,6 +11,8 @@ from models import *
 from utils import *
 import torch.distributed as dist
 
+from omegaconf import OmegaConf
+
 cudnn.benchmark = True
 
 parser = argparse.ArgumentParser(description='A PyTorch Implementation of MVSTER')
@@ -41,7 +43,8 @@ parser.add_argument('--eval_freq', type=int, default=1, help='eval freq')
 
 parser.add_argument('--seed', type=int, default=1, metavar='S', help='random seed')
 parser.add_argument('--pin_m', action='store_true', help='data loader pin memory')
-parser.add_argument("--local_rank", type=int, default=0)
+parser.add_argument("--local-rank", type=int, default=0)
+
 
 parser.add_argument('--ndepths', type=str, default="8,8,4,4", help='ndepths')
 parser.add_argument('--depth_inter_r', type=str, default="0.5,0.5,0.5,1", help='depth_intervals_ratio')
@@ -77,7 +80,7 @@ parser.add_argument('--attn_temp', type=float, default=2)
 
 
 num_gpus = int(os.environ["WORLD_SIZE"]) if "WORLD_SIZE" in os.environ else 1
-is_distributed = num_gpus > 1
+is_distributed = False #num_gpus > 1
 
 # main function
 def train(model, model_loss, optimizer, TrainImgLoader, TestImgLoader, start_epoch, args):
@@ -309,7 +312,11 @@ def test_sample_depth(model, model_loss, sample, args):
 
 if __name__ == '__main__':
     # parse arguments and check
+
+    cfg = OmegaConf.load("config.yaml")
+
     args = parser.parse_args()
+    args.local_rank = os.environ['LOCAL_RANK']
 
     if args.resume:
         assert args.mode == "train"
@@ -397,6 +404,9 @@ if __name__ == '__main__':
 
     # dataset, dataloader
     MVSDataset = find_dataset_def(args.dataset)
+    if args.dataset.startswith("transmvs"):
+        train_dataset = MVSDataset(cfg, "train")
+        test_dataset = MVSDataset(cfg, "test")
     if args.dataset.startswith('dtu'):
         train_dataset = MVSDataset(args.trainpath, args.trainlist, "train", 5, args.interval_scale, rt=args.rt,  use_raw_train=args.use_raw_train)
         test_dataset = MVSDataset(args.testpath, args.testlist, "val", 5, args.interval_scale)

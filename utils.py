@@ -2,6 +2,9 @@ import numpy as np
 import torchvision.utils as vutils
 import torch, random
 import torch.nn.functional as F
+import torch
+
+device = "cuda" if torch.cuda.is_available() else "cpu"
 
 
 # print arguments
@@ -44,7 +47,9 @@ def tensor2float(vars):
     elif isinstance(vars, torch.Tensor):
         return vars.data.item()
     else:
-        raise NotImplementedError("invalid input type {} for tensor2float".format(type(vars)))
+        raise NotImplementedError(
+            "invalid input type {} for tensor2float".format(type(vars))
+        )
 
 
 @make_recursive_func
@@ -54,28 +59,32 @@ def tensor2numpy(vars):
     elif isinstance(vars, torch.Tensor):
         return vars.detach().cpu().numpy().copy()
     else:
-        raise NotImplementedError("invalid input type {} for tensor2numpy".format(type(vars)))
+        raise NotImplementedError(
+            "invalid input type {} for tensor2numpy".format(type(vars))
+        )
 
 
 @make_recursive_func
 def tocuda(vars):
     if isinstance(vars, torch.Tensor):
-        return vars.to(torch.device("cuda"))
+        return vars.to(torch.device(device))
     elif isinstance(vars, str):
         return vars
     else:
-        raise NotImplementedError("invalid input type {} for tensor2numpy".format(type(vars)))
+        raise NotImplementedError(
+            "invalid input type {} for tensor2numpy".format(type(vars))
+        )
 
 
 def save_scalars(logger, mode, scalar_dict, global_step):
     scalar_dict = tensor2float(scalar_dict)
     for key, value in scalar_dict.items():
         if not isinstance(value, (list, tuple)):
-            name = '{}/{}'.format(mode, key)
+            name = "{}/{}".format(mode, key)
             logger.add_scalar(name, value, global_step)
         else:
             for idx in range(len(value)):
-                name = '{}/{}_{}'.format(mode, key, idx)
+                name = "{}/{}_{}".format(mode, key, idx)
                 logger.add_scalar(name, value[idx], global_step)
 
 
@@ -84,7 +93,9 @@ def save_images(logger, mode, images_dict, global_step):
 
     def preprocess(name, img):
         if not (len(img.shape) == 3 or len(img.shape) == 4):
-            raise NotImplementedError("invalid img shape {}:{} in save_images".format(name, img.shape))
+            raise NotImplementedError(
+                "invalid img shape {}:{} in save_images".format(name, img.shape)
+            )
         if len(img.shape) == 3:
             img = img[:, np.newaxis, :, :]
         img = torch.from_numpy(img[:1])
@@ -92,11 +103,11 @@ def save_images(logger, mode, images_dict, global_step):
 
     for key, value in images_dict.items():
         if not isinstance(value, (list, tuple)):
-            name = '{}/{}'.format(mode, key)
+            name = "{}/{}".format(mode, key)
             logger.add_image(name, preprocess(name, value), global_step)
         else:
             for idx in range(len(value)):
-                name = '{}/{}_{}'.format(mode, key, idx)
+                name = "{}/{}_{}".format(mode, key, idx)
                 logger.add_image(name, preprocess(name, value[idx]), global_step)
 
 
@@ -158,7 +169,10 @@ def AbsDepthError_metrics(depth_est, depth_gt, mask, thres=None):
             return torch.tensor(0, device=error.device, dtype=error.dtype)
     return torch.mean(error)
 
+
 import torch.distributed as dist
+
+
 def synchronize():
     """
     Helper function to synchronize (barrier) among all processes when
@@ -173,12 +187,14 @@ def synchronize():
         return
     dist.barrier()
 
+
 def get_world_size():
     if not dist.is_available():
         return 1
     if not dist.is_initialized():
         return 1
     return dist.get_world_size()
+
 
 def reduce_scalar_outputs(scalar_outputs):
     world_size = get_world_size()
@@ -200,8 +216,11 @@ def reduce_scalar_outputs(scalar_outputs):
 
     return reduced_scalars
 
+
 import torch
 from bisect import bisect_right
+
+
 # FIXME ideally this would be achieved with a CombinedLRScheduler,
 # separating MultiStepLR with WarmupLR
 # but the current LRScheduler design doesn't allow it
@@ -249,7 +268,7 @@ class WarmupMultiStepLR(torch.optim.lr_scheduler._LRScheduler):
             for base_lr in self.base_lrs
         ]
 
-    
+
 def set_random_seed(seed):
     random.seed(seed)
     np.random.seed(seed)
@@ -260,7 +279,7 @@ def set_random_seed(seed):
 def local_pcd(depth, intr):
     nx = depth.shape[1]  # w
     ny = depth.shape[0]  # h
-    x, y = np.meshgrid(np.arange(nx), np.arange(ny), indexing='xy')
+    x, y = np.meshgrid(np.arange(nx), np.arange(ny), indexing="xy")
     x = x.reshape(nx * ny)
     y = y.reshape(nx * ny)
     p2d = np.array([x, y, np.ones_like(y)])
@@ -270,6 +289,7 @@ def local_pcd(depth, intr):
     p3d = np.transpose(p3d, (1, 0))
     p3d = p3d.reshape(ny, nx, 3).astype(np.float32)
     return p3d
+
 
 def generate_pointcloud(rgb, depth, ply_file, intr, scale=1.0):
     """
@@ -283,14 +303,18 @@ def generate_pointcloud(rgb, depth, ply_file, intr, scale=1.0):
     points = []
     for v in range(rgb.shape[0]):
         for u in range(rgb.shape[1]):
-            color = rgb[v, u] #rgb.getpixel((u, v))
+            color = rgb[v, u]  # rgb.getpixel((u, v))
             Z = depth[v, u] / scale
-            if Z == 0: continue
+            if Z == 0:
+                continue
             X = (u - cx) * Z / fx
             Y = (v - cy) * Z / fy
-            points.append("%f %f %f %d %d %d 0\n" % (X, Y, Z, color[0], color[1], color[2]))
+            points.append(
+                "%f %f %f %d %d %d 0\n" % (X, Y, Z, color[0], color[1], color[2])
+            )
     file = open(ply_file, "w")
-    file.write('''ply
+    file.write(
+        """ply
             format ascii 1.0
             element vertex %d
             property float x
@@ -302,6 +326,8 @@ def generate_pointcloud(rgb, depth, ply_file, intr, scale=1.0):
             property uchar alpha
             end_header
             %s
-            ''' % (len(points), "".join(points)))
+            """
+        % (len(points), "".join(points))
+    )
     file.close()
     print("save ply, fx:{}, fy:{}, cx:{}, cy:{}".format(fx, fy, cx, cy))
