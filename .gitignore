@@ -5,3 +5,4 @@ debug_figs/
 scripts/upload_sippora.sh
 scripts/download_sippora.sh
 data/
+*.DS_Store
