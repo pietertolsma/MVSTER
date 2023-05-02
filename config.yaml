@@ -8,3 +8,9 @@ data:
 
 train:
   robust: True
+
+fpn:
+  levels: [0, 1, 2, 3] # in 2**x
+  base_channels: 8
+  gn: False
+  dcn: False

@@ -29,7 +29,7 @@ class MVSDataset(Dataset):
     def __init__(self, cfg, mode="train"):
         super(MVSDataset, self).__init__()
         assert mode in ["train", "val", "test"]
-        self.levels = 4 
+        self.levels = cfg.fpn.levels
         self.datapath = cfg.data.root
         # self.split = split
         self.listfile = os.path.join(f"./lists/transMVS/{mode}.txt")
@@ -78,6 +78,7 @@ class MVSDataset(Dataset):
             extrinsic[:3, :3] = R.from_rotvec([params["rx"], params["ry"], params["rz"]]).as_matrix()
             extrinsic[:3, 3] = np.array(params["camera_position"])
 
+            # TODO: ENSURE REAL INTRINSICS GO HERE.
             params["fx"] = 1
             params["fy"] = 1
             params["cx"] = 1
@@ -96,7 +97,8 @@ class MVSDataset(Dataset):
         return cams
 
     def read_depth_mask(self, scan, filename, depth_min, depth_max, scale):
-        depth = np.load(filename)[:self.img_wh[0], :self.img_wh[1]]
+        w, h = self.img_wh[0], self.img_wh[1]
+        depth = np.load(filename)
 
         # depth = (depth * self.scale_factor) * scale
         if scan not in self.scale_factors:
@@ -116,12 +118,12 @@ class MVSDataset(Dataset):
         depth_ms = {}
         mask_ms = {}
 
-        for i in range(4):
-            depth_cur = cv2.resize(depth, (w//(2**i), h//(2**i)), interpolation=cv2.INTER_NEAREST)
-            mask_cur = cv2.resize(mask, (w//(2**i), h//(2**i)), interpolation=cv2.INTER_NEAREST)
+        for i, scale in enumerate(self.levels):
+            depth_cur = cv2.resize(depth, (w//(2**scale), h//(2**scale)), interpolation=cv2.INTER_NEAREST)
+            mask_cur = cv2.resize(mask, (w//(2**scale), h//(2**scale)), interpolation=cv2.INTER_NEAREST)
 
-            depth_ms[f"stage{4-i}"] = depth_cur
-            mask_ms[f"stage{4-i}"] = mask_cur
+            depth_ms[f"stage{len(self.levels)-i}"] = depth_cur
+            mask_ms[f"stage{len(self.levels)-i}"] = mask_cur
 
         return depth_ms, mask_ms
 
@@ -129,7 +131,6 @@ class MVSDataset(Dataset):
     def read_img(self, filename):
         img = Image.open(filename)
         img = img.convert("RGB")
-        img = img.crop((0, 0, self.img_wh[0], self.img_wh[1]))
         # img = self.color_augment(img)
         # scale 0~255 to 0~1
         np_img = np.array(img, dtype=np.float32) / 255.
@@ -159,10 +160,8 @@ class MVSDataset(Dataset):
         depth_max = None
 
         proj={}
-        proj_matrices_0 = []
-        proj_matrices_1 = []
-        proj_matrices_2 = []
-        proj_matrices_3 = []
+
+        proj_matrices = [[] for _ in range(len(self.levels))]
 
 
         for i, vid in enumerate(view_ids):
@@ -181,45 +180,24 @@ class MVSDataset(Dataset):
             intrinsics = self.cams[vid]["intrinsic"]
             depth_min_, depth_max_ = self.depth_min, self.depth_max
 
-
-            proj_mat_0 = np.zeros(shape=(2, 4, 4), dtype=np.float32)
-            proj_mat_1 = np.zeros(shape=(2, 4, 4), dtype=np.float32)
-            proj_mat_2 = np.zeros(shape=(2, 4, 4), dtype=np.float32)
-            proj_mat_3 = np.zeros(shape=(2, 4, 4), dtype=np.float32)
-            extrinsics[:3, 3] *= scale
-            intrinsics[:2,:] *= 0.125
-            proj_mat_0[0,:4,:4] = extrinsics.copy()
-            proj_mat_0[1,:3,:3] = intrinsics.copy()
-
-            intrinsics[:2,:] *= 2
-            proj_mat_1[0,:4,:4] = extrinsics.copy()
-            proj_mat_1[1,:3,:3] = intrinsics.copy()
-
-            intrinsics[:2,:] *= 2
-            proj_mat_2[0,:4,:4] = extrinsics.copy()
-            proj_mat_2[1,:3,:3] = intrinsics.copy()
-
-            intrinsics[:2,:] *= 2
-            proj_mat_3[0,:4,:4] = extrinsics.copy()
-            proj_mat_3[1,:3,:3] = intrinsics.copy()  
-
-            proj_matrices_0.append(proj_mat_0)
-            proj_matrices_1.append(proj_mat_1)
-            proj_matrices_2.append(proj_mat_2)
-            proj_matrices_3.append(proj_mat_3)
+            for j, level in enumerate(self.levels):
+                scale_index = len(self.levels) - j - 1
+                proj_matrices[scale_index].append(np.zeros(shape=(2, 4, 4), dtype=np.float32))
+                proj_matrices[scale_index][-1][0, :4, :4] = extrinsics.copy()
+                proj_matrices[scale_index][-1][1, :3, :3] = intrinsics.copy()
+                proj_matrices[scale_index][-1][0, :3, 3] /=  (scale * 2**level)
+                proj_matrices[scale_index][-1][1, :2, :] /=  (scale * 2**level)
 
             if i == 0:  # reference view
                 depth_min = depth_min_ * scale
                 depth_max = depth_max_ * scale
                 depth, mask = self.read_depth_mask(scan, depth_filename, depth_min, depth_max, scale)
-                for l in range(self.levels):
+                for l in range(len(self.levels)):
                     mask[f'stage{l+1}'] = mask[f'stage{l+1}'] # np.expand_dims(mask[f'stage{l+1}'],2)
                     depth[f'stage{l+1}'] = depth[f'stage{l+1}']
 
-        proj['stage1'] = np.stack(proj_matrices_0)
-        proj['stage2'] = np.stack(proj_matrices_1)
-        proj['stage3'] = np.stack(proj_matrices_2)
-        proj['stage4'] = np.stack(proj_matrices_3)
+        for i in range(len(self.levels)):
+            proj[f"stage{i+1}"] = np.stack(proj_matrices[i])
 
         # check_invalid_input(imgs, depth, mask, depth_min, depth_max)
         # data is numpy array

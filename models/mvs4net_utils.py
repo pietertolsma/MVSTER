@@ -419,85 +419,77 @@ def NA_DCN(in_channels, kernel_size=3, stride=1, dilation=1, bias=True, group_ch
 class FPN4(nn.Module):
     """
     FPN aligncorners downsample 4x"""
-    def __init__(self, base_channels, gn=False, dcn=False):
+    def __init__(self, cfg):
         super(FPN4, self).__init__()
-        self.base_channels = base_channels
+        base_channels = cfg.fpn.base_channels
+        gn = cfg.fpn.gn
 
-        self.conv0 = nn.Sequential(
-            Conv2d(3, base_channels, 3, 1, padding=1, gn=gn),
-            Conv2d(base_channels, base_channels, 3, 1, padding=1, gn=gn),
-        )
+        self.levels = cfg.fpn.levels
+        self.base_channels = cfg.fpn.base_channels
+        self.convLayers = [
+            nn.Sequential(
+                Conv2d(3, base_channels, 3, 1, padding=1, gn=gn),
+                Conv2d(base_channels, base_channels, 3, 1, padding=1, gn=gn),
+            )
+        ]
 
-        self.conv1 = nn.Sequential(
-            Conv2d(base_channels, base_channels * 2, 5, stride=2, padding=2, gn=gn),
-            Conv2d(base_channels * 2, base_channels * 2, 3, 1, padding=1, gn=gn),
-            Conv2d(base_channels * 2, base_channels * 2, 3, 1, padding=1, gn=gn),
-        )
+        for i, _ in enumerate(cfg.fpn.levels):
+            if i == 0:
+                continue
+            in_channels = base_channels * 2**i
+            out_channels = base_channels * 2**(i+1)
 
-        self.conv2 = nn.Sequential(
-            Conv2d(base_channels * 2, base_channels * 4, 5, stride=2, padding=2, gn=gn),
-            Conv2d(base_channels * 4, base_channels * 4, 3, 1, padding=1, gn=gn),
-            Conv2d(base_channels * 4, base_channels * 4, 3, 1, padding=1, gn=gn),
-        )
+            layer = nn.Sequential(
+                Conv2d(in_channels, out_channels, 5, 1, stride=2, padding=2, gn=gn),
+                Conv2d(out_channels, out_channels, 3, 1, padding=1, gn=gn),
+                Conv2d(out_channels, out_channels, 3, 1, padding=1, gn=gn)
+            )
+            self.convLayers.append(layer)
 
-        self.conv3 = nn.Sequential(
-            Conv2d(base_channels * 4, base_channels * 8, 5, stride=2, padding=2, gn=gn),
-            Conv2d(base_channels * 8, base_channels * 8, 3, 1, padding=1, gn=gn),
-            Conv2d(base_channels * 8, base_channels * 8, 3, 1, padding=1, gn=gn),
-        )
+        self.out_channels = [2**(len(self.levels) - 1) * base_channels]
+        final_chs = base_channels * 2**(len(self.levels) - 1)
 
-        self.out_channels = [8 * base_channels]
-        final_chs = base_channels * 8
+        self.inner = [
+            nn.Conv2d(base_channels * 2**(len(self.levels) - i - 1), final_chs, 1, bias=True)
+            for i in range(1, len(self.levels))
+        ]
 
-        self.inner1 = nn.Conv2d(base_channels * 4, final_chs, 1, bias=True)
-        self.inner2 = nn.Conv2d(base_channels * 2, final_chs, 1, bias=True)
-        self.inner3 = nn.Conv2d(base_channels * 1, final_chs, 1, bias=True)
+        self.out = [
+            nn.Conv2d(final_chs, base_channels * 2**(len(self.levels) - i - 1), 
+                      kernel_size = 1 if i == 0 else 3, 
+                      padding = 0 if i == 0 else 1, 
+                      bias = False)
+            for i in range(len(self.levels))
+        ]
 
-        self.out1 = nn.Conv2d(final_chs, base_channels * 8, 1, bias=False)
-        self.out2 = nn.Conv2d(final_chs, base_channels * 4, 3, padding=1, bias=False)
-        self.out3 = nn.Conv2d(final_chs, base_channels * 2, 3, padding=1, bias=False)
-        self.out4 = nn.Conv2d(final_chs, base_channels, 3, padding=1, bias=False)
-
-        self.dcn = dcn
+        self.dcn = cfg.fpn.dcn
         if self.dcn:
-            self.dcn1 = NA_DCN(base_channels * 8, 3, gn=gn)
-            self.dcn2 = NA_DCN(base_channels * 4, 3, gn=gn)
-            self.dcn3 = NA_DCN(base_channels * 2, 3, gn=gn)
-            self.dcn4 = NA_DCN(base_channels * 1, 3, gn=gn)
+            self.dcn_layers = [
+                NA_DCN(base_channels * 2**(len(self.levels) - i - 1), 3, gn=gn)
+                for i in range(len(self.levels))
+            ]
 
-        self.out_channels.append(base_channels * 4)
-        self.out_channels.append(base_channels * 2)
-        self.out_channels.append(base_channels)
+        for i in range(1, len(self.levels)):
+            self.out_channels.append(base_channels * 2**(len(self.levels) - i - 1))
 
     def forward(self, x):
-        conv0 = self.conv0(x)
-        conv1 = self.conv1(conv0)
-        conv2 = self.conv2(conv1)
-        conv3 = self.conv3(conv2)
+        conv = [self.conv[0](x)]
+        for i in range(1, len(self.levels)):
+            conv.append(self.conv[i](conv[-1]))
 
-        intra_feat = conv3
+        intra_feat = conv[-1]
         outputs = {}
-        out1 = self.out1(intra_feat)
+        out = [self.out[0](intra_feat)]
 
-        intra_feat = F.interpolate(intra_feat, scale_factor=2, mode="bilinear", align_corners=True) + self.inner1(conv2)
-        out2 = self.out2(intra_feat)
-
-        intra_feat = F.interpolate(intra_feat, scale_factor=2, mode="bilinear", align_corners=True) + self.inner2(conv1)
-        out3 = self.out3(intra_feat)
-
-        intra_feat = F.interpolate(intra_feat, scale_factor=2, mode="bilinear", align_corners=True) + self.inner3(conv0)
-        out4 = self.out4(intra_feat)
+        for i in range(1, len(self.levels)):
+            intra_feat = F.interpolate(intra_feat, scale_factor=2, mode="bilinear", align_corners=True) + self.inner[i-1](conv[-i])
+            out.append(self.out[i](intra_feat))
 
         if self.dcn:
-            out1 = self.dcn1(out1)
-            out2 = self.dcn2(out2)
-            out3 = self.dcn3(out3)
-            out4 = self.dcn4(out4)
+            out = [self.dcn_layers[i](layer) for layer in out]
 
-        outputs["stage1"] = out1
-        outputs["stage2"] = out2
-        outputs["stage3"] = out3
-        outputs["stage4"] = out4
+        for i in range(len(self.levels)):
+            outputs[f"stage{i+1}"] = out[i]
 
         return outputs
 
