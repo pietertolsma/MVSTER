@@ -13,6 +13,8 @@ from datasets.data_io import read_pfm, save_pfm
 from plyfile import PlyData, PlyElement
 from PIL import Image
 
+from omegaconf import OmegaConf
+
 from multiprocessing import Pool
 from functools import partial
 import signal
@@ -219,16 +221,20 @@ def save_depth(testlist):
 def save_scene_depth(testlist):
     # dataset, dataloader
     MVSDataset = find_dataset_def(args.dataset)
-    test_dataset = MVSDataset(
-        args.testpath,
-        testlist,
-        "test",
-        args.num_view,
-        Interval_Scale,
-        max_h=args.max_h,
-        max_w=args.max_w,
-        fix_res=args.fix_res,
-    )
+    cfg = OmegaConf.load("config.yaml")
+    if args.dataset == "totemvs":
+        test_dataset = MVSDataset(cfg, "test")
+    else:
+        test_dataset = MVSDataset(
+            args.testpath,
+            testlist,
+            "test",
+            args.num_view,
+            Interval_Scale,
+            max_h=args.max_h,
+            max_w=args.max_w,
+            fix_res=args.fix_res,
+        )
     TestImgLoader = DataLoader(
         test_dataset, args.batch_size, shuffle=False, num_workers=4, drop_last=False
     )

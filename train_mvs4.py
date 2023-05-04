@@ -404,7 +404,7 @@ if __name__ == '__main__':
 
     # dataset, dataloader
     MVSDataset = find_dataset_def(args.dataset)
-    if args.dataset.startswith("transmvs"):
+    if args.dataset.startswith("totemvs"):
         train_dataset = MVSDataset(cfg, "train")
         test_dataset = MVSDataset(cfg, "test")
     if args.dataset.startswith('dtu'):
