@@ -1,0 +1,8 @@
+{
+  "sync-rsync.remote": "ptolsma@student-linux.tudelft.nl:/home/nfs/ptolsma/storage/mvster",
+  "sync-rsync.onSave": true,
+  "sync-rsync.shell": "",
+  "sync-rsync.options": [
+    
+  ]
+}

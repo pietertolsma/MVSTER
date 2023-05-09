@@ -241,6 +241,7 @@ def save_scene_depth(testlist):
 
     # model
     model = MVS4net(
+        cfg,
         arch_mode=args.arch_mode,
         reg_net=args.reg_mode,
         num_stage=4,
@@ -262,10 +263,12 @@ def save_scene_depth(testlist):
     # load checkpoint file specified by args.loadckpt
     print("loading model {}".format(args.loadckpt))
     state_dict = torch.load(args.loadckpt, map_location=torch.device("cpu"))
-    model.load_state_dict(state_dict["model"], strict=True)
-    model = nn.DataParallel(model)
+    model.load_state_dict(state_dict["model"], strict=False)
+    model = nn.DataParallel(model, device_ids=[0])
     if device == "cuda":
         model.cuda()
+        model.to(device)
+        print("Set model to cuda")
     model.eval()
 
     total_time = 0

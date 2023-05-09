@@ -7,7 +7,9 @@ from models.mvs4net_utils import stagenet, reg2d, reg3d, FPN4, FPN4_convnext, FP
 
 
 class MVS4net(nn.Module):
-    def __init__(self, arch_mode="fpn", reg_net='reg2d', num_stage=4, fpn_base_channel=8, 
+    def __init__(self, 
+                cfg, 
+                arch_mode="fpn", reg_net='reg2d', num_stage=4, fpn_base_channel=8, 
                 reg_channel=8, stage_splits=[8,8,4,4], depth_interals_ratio=[0.5,0.5,0.5,1],
                 group_cor=False, group_cor_dim=[8,8,8,8],
                 inverse_depth=False,
@@ -24,7 +26,7 @@ class MVS4net(nn.Module):
         # pos_enc: 0 no pos enc; 1 depth sine; 2 learnable pos enc
         super(MVS4net, self).__init__()
         self.arch_mode = arch_mode
-        self.num_stage = num_stage
+        self.num_stage = len(cfg.fpn.levels)
         self.depth_interals_ratio = depth_interals_ratio
         self.group_cor = group_cor
         self.group_cor_dim = group_cor_dim
@@ -34,7 +36,7 @@ class MVS4net(nn.Module):
             self.asff = nn.ModuleList([ASFF(i) for i in range(num_stage)])
         self.attn_ob = nn.ModuleList()
         if arch_mode == "fpn":
-            self.feature = FPN4(base_channels=fpn_base_channel, gn=False, dcn=dcn)
+            self.feature = FPN4(cfg)
         self.vis_mono = vis_mono
         self.stagenet = stagenet(inverse_depth, mono, attn_fuse_d, vis_ETA, attn_temp)
         self.stage_splits = stage_splits
@@ -56,6 +58,11 @@ class MVS4net(nn.Module):
             elif reg_net == 'reg3d':
                 self.reg.append(reg3d(in_channels=in_dim, base_channels=reg_channel, down_size=self.down_size[idx]))
 
+    def to(self, device):
+        module = super().to(device)
+        if self.feature:
+            self.feature.to(device)
+        return module
 
     def forward(self, imgs, proj_matrices, depth_values, filename=None):
         depth_min = depth_values[:, 0].cpu().numpy()

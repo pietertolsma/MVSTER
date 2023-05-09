@@ -436,11 +436,11 @@ class FPN4(nn.Module):
         for i, _ in enumerate(cfg.fpn.levels):
             if i == 0:
                 continue
-            in_channels = base_channels * 2**i
-            out_channels = base_channels * 2**(i+1)
+            in_channels = base_channels * 2**(i-1)
+            out_channels = base_channels * 2**(i)
 
             layer = nn.Sequential(
-                Conv2d(in_channels, out_channels, 5, 1, stride=2, padding=2, gn=gn),
+                Conv2d(in_channels, out_channels, 5, stride=2, padding=2, gn=gn),
                 Conv2d(out_channels, out_channels, 3, 1, padding=1, gn=gn),
                 Conv2d(out_channels, out_channels, 3, 1, padding=1, gn=gn)
             )
@@ -453,6 +453,7 @@ class FPN4(nn.Module):
             nn.Conv2d(base_channels * 2**(len(self.levels) - i - 1), final_chs, 1, bias=True)
             for i in range(1, len(self.levels))
         ]
+        # 2 1 0
 
         self.out = [
             nn.Conv2d(final_chs, base_channels * 2**(len(self.levels) - i - 1), 
@@ -472,17 +473,33 @@ class FPN4(nn.Module):
         for i in range(1, len(self.levels)):
             self.out_channels.append(base_channels * 2**(len(self.levels) - i - 1))
 
+    def to(self, device):
+        # perform any necessary adjustments here
+        print("Moving FPN4 to device:", device)
+        # call the parent class's to() method to move the module and its parameters
+        module = super().to(device)
+        for item in self.inner:
+            item.to(device)
+        for item in self.convLayers:
+            item.to(device)
+        for item in self.out:
+            item.to(device)
+        if self.dcn:
+            for item in self.dcn_layers:
+                item.to(device)
+        return module
+
     def forward(self, x):
-        conv = [self.conv[0](x)]
+        conv = [self.convLayers[0](x)]
         for i in range(1, len(self.levels)):
-            conv.append(self.conv[i](conv[-1]))
+            conv.append(self.convLayers[i](conv[-1]))
 
         intra_feat = conv[-1]
         outputs = {}
         out = [self.out[0](intra_feat)]
 
         for i in range(1, len(self.levels)):
-            intra_feat = F.interpolate(intra_feat, scale_factor=2, mode="bilinear", align_corners=True) + self.inner[i-1](conv[-i])
+            intra_feat = F.interpolate(intra_feat, scale_factor=2, mode="bilinear", align_corners=True) + self.inner[i-1](conv[-i-1])
             out.append(self.out[i](intra_feat))
 
         if self.dcn:

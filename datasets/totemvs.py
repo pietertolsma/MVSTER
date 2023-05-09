@@ -8,7 +8,9 @@ from torchvision import transforms as T
 import random
 from scipy.spatial.transform import Rotation as R
 import json
-import copy
+from skimage.transform import resize
+
+from torch import Tensor
 
 def check_invalid_input(imgs, depths, masks, depth_mins, depth_maxs):
     for img in imgs:
@@ -60,8 +62,8 @@ class MVSDataset(Dataset):
 
         for scan in self.scans:
 
-            ref_views = np.arange(1, self.nviews + 1)
-            all_src_views = [np.delete(ref_views, i-1, None) for i in ref_views]
+            ref_views = np.arange(0, self.nviews)
+            all_src_views = [np.delete(ref_views, i, None) for i in ref_views]
 
             for (ref, src_views) in zip(ref_views, all_src_views):
                 self.metas += [(scan, ref, list(src_views))]
@@ -79,6 +81,7 @@ class MVSDataset(Dataset):
         depth = (depth * self.scale_factors[scan]) * scale
         # TODO: Fix this part -> scale factors is weird.
         # depth = depth * scale
+        depth = resize(depth, self.img_wh, anti_aliasing=True)
         depth = depth[:, :, None]
 
         mask = (depth>=depth_min) & (depth<=depth_max)
@@ -103,7 +106,7 @@ class MVSDataset(Dataset):
 
     def read_img(self, filename):
         img = Image.open(filename)
-        img = img.convert("RGB")
+        img = img.convert("RGB").resize(self.img_wh)
         # img = self.color_augment(img)
         # scale 0~255 to 0~1
         np_img = np.array(img, dtype=np.float32) / 255.
@@ -139,7 +142,7 @@ class MVSDataset(Dataset):
 
         for i, vid in enumerate(view_ids):
             img_filename = os.path.join(self.datapath, 
-                            f"{scan}/{self.material}/{vid-1}.png")
+                            f"{scan}/{self.material}/{vid}.png")
             depth_filename = os.path.join(self.datapath, 
                         f"{scan}/depth/{vid}.npy")
             #proj_mat_filename = os.path.join(self.datapath, '{}/cams/{:0>8}_cam.txt'.format(scan, vid))
@@ -149,8 +152,8 @@ class MVSDataset(Dataset):
 
             #intrinsics, extrinsics, depth_min_, depth_max_ = self.read_cam_file(scan, proj_mat_filename)
             # proj_mat_filename = os.path.join(self.datapath, 'Cameras/train/{:0>8}_cam.txt').format(vid)
-            extrinsics = self.cams[str(vid-1)]["extrinsic"]
-            intrinsics = self.cams[str(vid-1)]["intrinsic"]
+            extrinsics = self.cams[str(vid)]["extrinsic"]
+            intrinsics = self.cams[str(vid)]["intrinsic"]
             depth_min_, depth_max_ = self.depth_min, self.depth_max
 
             for j, level in enumerate(self.levels):
@@ -178,5 +181,6 @@ class MVSDataset(Dataset):
                 "proj_matrices": proj,          # [N,2,4,4]
                 "depth": depth,                 # [1, H, W]
                 "depth_values": np.array([depth_min, depth_max], dtype=np.float32),
-                "mask": mask}                   # [1, H, W]
+                "mask": mask,
+                "filename": scan + '/{}/' + '{:0>8}'.format(view_ids[0]) + "{}"}                   # [1, H, W]
         

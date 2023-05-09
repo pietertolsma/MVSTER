@@ -80,10 +80,11 @@ parser.add_argument('--attn_temp', type=float, default=2)
 
 
 num_gpus = int(os.environ["WORLD_SIZE"]) if "WORLD_SIZE" in os.environ else 1
-is_distributed = False #num_gpus > 1
+print(f"NUM GPUS {num_gpus}")
+is_distributed = num_gpus > 1
 
 # main function
-def train(model, model_loss, optimizer, TrainImgLoader, TestImgLoader, start_epoch, args):
+def train(model, model_loss, optimizer, TrainImgLoader, TestImgLoader, start_epoch, args, cfg):
     milestones = [len(TrainImgLoader) * int(epoch_idx) for epoch_idx in args.lrepochs.split(':')[0].split(',')]
     lr_gamma = 1 / float(args.lrepochs.split(':')[1])
     if args.lr_scheduler == 'MS':
@@ -94,7 +95,7 @@ def train(model, model_loss, optimizer, TrainImgLoader, TestImgLoader, start_epo
     elif args.lr_scheduler == 'onecycle':
         lr_scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=args.lr,total_steps=int(args.epochs*len(TrainImgLoader)))
 
-    for epoch_idx in range(start_epoch, args.epochs):
+    for epoch_idx in range(start_epoch, cfg.train.epochs):
         print('Epoch {}:'.format(epoch_idx))
         global_step = len(TrainImgLoader) * epoch_idx
 
@@ -110,34 +111,21 @@ def train(model, model_loss, optimizer, TrainImgLoader, TestImgLoader, start_epo
                     save_scalars(logger, 'train', scalar_outputs, global_step)
                     save_images(logger, 'train', image_outputs, global_step)
                     print(
-                       "Epoch {}/{}, Iter {}/{}, lr {:.6f}, train loss = {:.3f}, d_loss = {:.3f}, {:.3f}, {:.3f}, {:.3f}, c_loss = {:.3f}, {:.3f}, {:.3f}, {:.3f}, range_err = {:.3f}, {:.3f}, {:.3f}, {:.3f}, time = {:.3f}".format(
-                           epoch_idx, args.epochs, batch_idx, len(TrainImgLoader),
+                       "Epoch {}/{}, Iter {}/{}, lr {:.6f}, train loss = {:.3f}, time = {:.3f}".format(
+                           epoch_idx, cfg.train.epochs, batch_idx, len(TrainImgLoader),
                            optimizer.param_groups[0]["lr"], 
                            loss,
-                           scalar_outputs["s0_d_loss"],
-                           scalar_outputs["s1_d_loss"],
-                           scalar_outputs["s2_d_loss"],
-                           scalar_outputs["s3_d_loss"],
-                           scalar_outputs["s0_c_loss"],
-                           scalar_outputs["s1_c_loss"],
-                           scalar_outputs["s2_c_loss"],
-                           scalar_outputs["s3_c_loss"],
-                           scalar_outputs["s0_range_err_ratio"],
-                           scalar_outputs["s1_range_err_ratio"],
-                           scalar_outputs["s2_range_err_ratio"],
-                           scalar_outputs["s3_range_err_ratio"],
                            time.time() - start_time))
                 del scalar_outputs, image_outputs
 
         # checkpoint
         if (not is_distributed) or (dist.get_rank() == 0):
             if (epoch_idx + 1) % args.save_freq == 0:
-                if epoch_idx == args.epochs - 1:
-                    torch.save({
-                        'epoch': epoch_idx,
-                        'model': model.module.state_dict(),
-                        'optimizer': optimizer.state_dict()},
-                        "{}/finalmodel.ckpt".format(args.logdir))  
+                torch.save({
+                    'epoch': epoch_idx,
+                    'model': model.module.state_dict(),
+                    'optimizer': optimizer.state_dict()},
+                    "{}/finalmodel.ckpt".format(args.logdir))  
         gc.collect()
 
         # testing
@@ -153,22 +141,10 @@ def train(model, model_loss, optimizer, TrainImgLoader, TestImgLoader, start_epo
                         save_scalars(logger, 'test', scalar_outputs, global_step)
                         save_images(logger, 'test', image_outputs, global_step)
                         print(
-                            "Epoch {}/{}, Iter {}/{}, lr {:.6f}, test loss = {:.3f}, d_loss = {:.3f}, {:.3f}, {:.3f}, {:.3f}, c_loss = {:.3f}, {:.3f}, {:.3f}, {:.3f}, range_err = {:.3f}, {:.3f}, {:.3f}, {:.3f}, time = {:.3f}".format(
+                            "Epoch {}/{}, Iter {}/{}, lr {:.6f}, test loss = {:.3f}, time = {:.3f}".format(
                             epoch_idx, args.epochs, batch_idx, len(TrainImgLoader),
                                optimizer.param_groups[0]["lr"], 
                            loss,
-                           scalar_outputs["s0_d_loss"],
-                           scalar_outputs["s1_d_loss"],
-                           scalar_outputs["s2_d_loss"],
-                           scalar_outputs["s3_d_loss"],
-                           scalar_outputs["s0_c_loss"],
-                           scalar_outputs["s1_c_loss"],
-                           scalar_outputs["s2_c_loss"],
-                           scalar_outputs["s3_c_loss"],
-                           scalar_outputs["s0_range_err_ratio"],
-                           scalar_outputs["s1_range_err_ratio"],
-                           scalar_outputs["s2_range_err_ratio"],
-                           scalar_outputs["s3_range_err_ratio"],
                             time.time() - start_time))
                     avg_test_scalars.update(scalar_outputs)
                     del scalar_outputs, image_outputs
@@ -202,8 +178,8 @@ def train_sample(model, model_loss, optimizer, sample, args):
     sample_cuda = tocuda(sample)
     depth_gt_ms = sample_cuda["depth"]
     mask_ms = sample_cuda["mask"]
-
-    num_stage = len([int(nd) for nd in args.ndepths.split(",") if nd])
+    cfg = OmegaConf.load("config.yaml")
+    num_stage = len(cfg.fpn.levels)
     depth_gt = depth_gt_ms["stage{}".format(num_stage)]
     mask = mask_ms["stage{}".format(num_stage)]
 
@@ -220,23 +196,18 @@ def train_sample(model, model_loss, optimizer, sample, args):
     loss.backward()
     optimizer.step()
 
-    scalar_outputs = {"loss": loss,
-                      "s0_d_loss": stage_d_loss[0],
-                      "s1_d_loss": stage_d_loss[1],
-                      "s2_d_loss": stage_d_loss[2],
-                      "s3_d_loss": stage_d_loss[3],
-                      "s0_c_loss": stage_c_loss[0],
-                      "s1_c_loss": stage_c_loss[1],
-                      "s2_c_loss": stage_c_loss[2],
-                      "s3_c_loss": stage_c_loss[3],
-                      "s0_range_err_ratio":range_err_ratio[0],
-                      "s1_range_err_ratio":range_err_ratio[1],
-                      "s2_range_err_ratio":range_err_ratio[2],
-                      "s3_range_err_ratio":range_err_ratio[3],
-                      "abs_depth_error": AbsDepthError_metrics(depth_est, depth_gt, mask > 0.5),
-                      "thres2mm_error": Thres_metrics(depth_est, depth_gt, mask > 0.5, 2),
-                      "thres4mm_error": Thres_metrics(depth_est, depth_gt, mask > 0.5, 4),
-                      "thres8mm_error": Thres_metrics(depth_est, depth_gt, mask > 0.5, 8),}
+    scalar_outputs = {
+        "loss": loss,
+        "abs_depth_error": AbsDepthError_metrics(depth_est, depth_gt, mask > 0.5),
+        "thres2mm_error": Thres_metrics(depth_est, depth_gt, mask > 0.5, 2),
+        "thres4mm_error": Thres_metrics(depth_est, depth_gt, mask > 0.5, 4),
+        "thres8mm_error": Thres_metrics(depth_est, depth_gt, mask > 0.5, 8)
+    }
+
+    for i in range(len(stage_d_loss)):
+        scalar_outputs[f"s{i}_d_loss"] = stage_d_loss[i]
+        scalar_outputs[f"s{i}_c_loss"] = stage_c_loss[i]
+        scalar_outputs[f"s{i}_range_err_ratio"] = range_err_ratio[i]
 
     image_outputs = {"depth_est": depth_est * mask,
                      "depth_est_nomask": depth_est,
@@ -278,24 +249,18 @@ def test_sample_depth(model, model_loss, sample, args):
                                         ot_iter=args.ot_iter, ot_continous=args.ot_continous, ot_eps=args.ot_eps,
                                         mono=False
                                         )
-    scalar_outputs = {"loss": loss,
-                      "s0_d_loss": stage_d_loss[0],
-                      "s1_d_loss": stage_d_loss[1],
-                      "s2_d_loss": stage_d_loss[2],
-                      "s3_d_loss": stage_d_loss[3],
-                      "s0_c_loss": stage_c_loss[0],
-                      "s1_c_loss": stage_c_loss[1],
-                      "s2_c_loss": stage_c_loss[2],
-                      "s3_c_loss": stage_c_loss[3],
-                      "s0_range_err_ratio":range_err_ratio[0],
-                      "s1_range_err_ratio":range_err_ratio[1],
-                      "s2_range_err_ratio":range_err_ratio[2],
-                      "s3_range_err_ratio":range_err_ratio[3],
-                      "abs_depth_error": AbsDepthError_metrics(depth_est, depth_gt, mask > 0.5),
-                      "thres2mm_error": Thres_metrics(depth_est, depth_gt, mask > 0.5, 2),
-                      "thres4mm_error": Thres_metrics(depth_est, depth_gt, mask > 0.5, 4),
-                      "thres8mm_error": Thres_metrics(depth_est, depth_gt, mask > 0.5, 8),
-                    }
+    scalar_outputs = {
+        "loss": loss,
+        "abs_depth_error": AbsDepthError_metrics(depth_est, depth_gt, mask > 0.5),
+        "thres2mm_error": Thres_metrics(depth_est, depth_gt, mask > 0.5, 2),
+        "thres4mm_error": Thres_metrics(depth_est, depth_gt, mask > 0.5, 4),
+        "thres8mm_error": Thres_metrics(depth_est, depth_gt, mask > 0.5, 8)
+    }
+
+    for i in range(len(stage_d_loss)):
+        scalar_outputs[f"s{i}_d_loss"] = stage_d_loss[i]
+        scalar_outputs[f"s{i}_c_loss"] = stage_c_loss[i]
+        scalar_outputs[f"s{i}_range_err_ratio"] = range_err_ratio[i]
 
     image_outputs = {"depth_est": depth_est * mask,
                      "depth_est_nomask": depth_est,
@@ -326,7 +291,7 @@ if __name__ == '__main__':
         args.testpath = args.trainpath
 
     if is_distributed:
-        torch.cuda.set_device(args.local_rank)
+        torch.cuda.set_device(f"cuda:{args.local_rank}")
         torch.distributed.init_process_group(
             backend="nccl", init_method="env://"
         )
@@ -334,6 +299,7 @@ if __name__ == '__main__':
 
     set_random_seed(args.seed)
     device = torch.device(args.device)
+    print(f"DEVICE IS {device}")
 
     if (not is_distributed) or (dist.get_rank() == 0):
         # create logger for mode "train" and "testall"
@@ -348,7 +314,7 @@ if __name__ == '__main__':
         print_args(args)
 
     # model, optimizer
-    model = MVS4net(arch_mode=args.arch_mode, reg_net=args.reg_mode, num_stage=4, 
+    model = MVS4net(cfg, arch_mode=args.arch_mode, reg_net=args.reg_mode, num_stage=4, 
                     fpn_base_channel=args.fpn_base_channel, reg_channel=args.reg_channel, 
                     stage_splits=[int(n) for n in args.ndepths.split(",")], 
                     depth_interals_ratio=[float(ir) for ir in args.depth_inter_r.split(",")],
@@ -392,15 +358,15 @@ if __name__ == '__main__':
 
     if is_distributed:
         if dist.get_rank() == 0:
-            print("Let's use", torch.cuda.device_count(), "GPUs!")
+            print("Let's use", torch.cuda.device_count(), "GPUs! (distributed)")
         model = torch.nn.parallel.DistributedDataParallel(
-            model, device_ids=[args.local_rank], output_device=args.local_rank,
+            model, device_ids=[args.local_rank], output_device=args.local_rank
             # find_unused_parameters=True,
         )
     else:
         if torch.cuda.is_available():
             print("Let's use", torch.cuda.device_count(), "GPUs!")
-            model = nn.DataParallel(model)
+            model = nn.DataParallel(model, device_ids=[0])
 
     # dataset, dataloader
     MVSDataset = find_dataset_def(args.dataset)
@@ -432,7 +398,7 @@ if __name__ == '__main__':
 
 
     if args.mode == "train":
-        train(model, model_loss, optimizer, TrainImgLoader, TestImgLoader, start_epoch, args)
+        train(model, model_loss, optimizer, TrainImgLoader, TestImgLoader, start_epoch, args, cfg)
     elif args.mode == "test":
         test(model, model_loss, TestImgLoader, args)
     else:

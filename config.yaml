@@ -1,13 +1,14 @@
 data:
   root: ./data/ToteMVS
-  material: transparent
-  img_wh: [1024, 1024]
-  nviews: 3
-  depth_min: 0.1
-  depth_max: 100000
+  material: diffuse
+  img_wh: [512, 512]
+  nviews: 6
+  depth_min: 60
+  depth_max: 300
 
 train:
   robust: True
+  epochs: 300
 
 fpn:
   levels: [0, 1, 2, 3] # in 2**x
