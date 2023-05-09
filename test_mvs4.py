@@ -16,6 +16,7 @@ from PIL import Image
 from multiprocessing import Pool
 from functools import partial
 import signal
+from omegaconf import OmegaConf
 
 cudnn.benchmark = True
 
@@ -219,16 +220,20 @@ def save_depth(testlist):
 def save_scene_depth(testlist):
     # dataset, dataloader
     MVSDataset = find_dataset_def(args.dataset)
-    test_dataset = MVSDataset(
-        args.testpath,
-        testlist,
-        "test",
-        args.num_view,
-        Interval_Scale,
-        max_h=args.max_h,
-        max_w=args.max_w,
-        fix_res=args.fix_res,
-    )
+    cfg = OmegaConf.load("config.yaml")
+    if "Tote" in cfg.data.root:
+        test_dataset = MVSDataset(cfg, "test")
+    else:
+        test_dataset = MVSDataset(
+            args.testpath,
+            testlist,
+            "test",
+            args.num_view,
+            Interval_Scale,
+            max_h=args.max_h,
+            max_w=args.max_w,
+            fix_res=args.fix_res,
+        )
     TestImgLoader = DataLoader(
         test_dataset, args.batch_size, shuffle=False, num_workers=4, drop_last=False
     )
@@ -466,12 +471,12 @@ def check_geometric_consistency(
 
 def filter_depth(pair_folder, scan_folder, out_folder, plyfilename):
     # the pair file
-    pair_file = os.path.join(pair_folder, "pair.txt")
+    #pair_file = os.path.join(pair_folder, "pair.txt")
     # for the final point cloud
     vertexs = []
     vertex_colors = []
 
-    pair_data = read_pair_file(pair_file)
+    pair_data = []# read_pair_file(pair_file)
 
     # for each reference view and the corresponding source views
     for ref_view, src_views in pair_data:

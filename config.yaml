@@ -1,10 +1,17 @@
 data:
-  root: ./data/transMVS
-  category: transparent
-  img_wh: [960, 640]
+  root: ./data/ToteMVS
+  material: diffuse
+  img_wh: [512, 512]
   nviews: 6
-  depth_min: 0.1
-  depth_max: 100000
+  depth_min: 77
+  depth_max: 140
 
 train:
   robust: True
+  epochs: 300
+
+fpn:
+  levels: [0, 1, 2, 3] # in 2**x
+  base_channels: 8
+  gn: False
+  dcn: False

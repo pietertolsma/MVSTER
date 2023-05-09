@@ -376,8 +376,8 @@ if __name__ == '__main__':
         loadckpt = os.path.join(args.logdir, saved_models[-1])
         print("resuming", loadckpt)
         state_dict = torch.load(loadckpt, map_location=torch.device("cpu"))
-        model.load_state_dict(state_dict['model'])
-        optimizer.load_state_dict(state_dict['optimizer'])
+        model.load_state_dict(state_dict['model'], strict=False)
+        #optimizer.load_state_dict(state_dict['optimizer'])
         start_epoch = state_dict['epoch'] + 1
     elif args.loadckpt:
         # load checkpoint file specified by args.loadckpt
@@ -404,10 +404,10 @@ if __name__ == '__main__':
 
     # dataset, dataloader
     MVSDataset = find_dataset_def(args.dataset)
-    if args.dataset.startswith("transmvs"):
+    if args.dataset.startswith("totemvs"):
         train_dataset = MVSDataset(cfg, "train")
         test_dataset = MVSDataset(cfg, "test")
-    if args.dataset.startswith('dtu'):
+    elif args.dataset.startswith('dtu'):
         train_dataset = MVSDataset(args.trainpath, args.trainlist, "train", 5, args.interval_scale, rt=args.rt,  use_raw_train=args.use_raw_train)
         test_dataset = MVSDataset(args.testpath, args.testlist, "val", 5, args.interval_scale)
     elif args.dataset.startswith('blendedmvs'):
